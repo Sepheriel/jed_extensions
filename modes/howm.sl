@@ -26,13 +26,14 @@
 % Keybindings (C-c prefix):
 %   C-c c    Create note       C-c g    Follow link
 %   C-c s    Search            C-c C-s  Incremental search
-%   C-c t    Search by tag     C-c C-f  Incremental search by tag
+%   C-c C-a  Search by tag     C-c C-f  Incremental search by tag
 %   C-c a    List all tags     C-c y    List schedule
-%   C-c d    List todo         C-c r    List recent
+%   C-c t    List todo         C-c r    List recent
 %   C-c C-t  Toggle todo state
-%   C-c Y    Insert schedule   C-c +    Insert todo
-%   C-c !    Insert deadline   C-c -    Insert reminder
-%   C-c ~    Insert defer      C-c .    Insert done
+%   C-c d    Insert date       C-c Y    Insert schedule
+%   C-c +    Insert todo       C-c !    Insert deadline
+%   C-c -    Insert reminder   C-c ~    Insert defer
+%   C-c .    Insert done
 %   C-c l    Insert >>>link    C-c L    Insert <<<link
 %   C-c ?    Help
 %
@@ -1452,13 +1453,14 @@ define howm_menu()
     insert("  C-c g     Follow link (>>> or <<<)\n");
     insert("  C-c s     Search notes\n");
     insert("  C-c C-s   Incremental search (type-as-you-search)\n");
-    insert("  C-c t     Search by tag (filter files by Denote tag)\n");
+    insert("  C-c C-a   Search by tag (all lines in tagged files)\n");
     insert("  C-c C-f   Incremental search by tag (filter + search)\n");
     insert("  C-c a     List all tags (with counts)\n");
     insert("  C-c y     List schedule (@)\n");
-    insert("  C-c d     List todo/reminder (+!-~)\n");
+    insert("  C-c t     List todo/reminder (+!-~)\n");
     insert("  C-c r     List recent files\n");
-    insert("  C-c C-t   Toggle todo state cycle\n\n");
+    insert("  C-c C-t   Toggle todo state cycle\n");
+    insert("  C-c d     Insert date\n\n");
     insert("  C-c d     Insert [date]\n");
     insert("  C-c y     Insert schedule  [date]@1\n");
     insert("  C-c +     Insert todo       [date]+0\n");
@@ -1490,10 +1492,10 @@ if (keymap_p(Howm_Mode) == 0)
     definekey("howm_goto_link",            "^Cg",  Howm_Mode);
     definekey("howm_search_prompt",        "^Cs",  Howm_Mode);
     definekey("howm_isearch",              "^C^S", Howm_Mode);  % Incremental search
-    definekey("howm_search_by_tag",        "^Ct",  Howm_Mode);  % Search by tag
+    definekey("howm_search_by_tag",        "^C^A", Howm_Mode);  % Search by tag (A=all in tag)
     definekey("howm_isearch_by_tag",       "^C^F", Howm_Mode);  % Incremental by tag (F=filter)
     definekey("howm_list_schedule",        "^Cy",  Howm_Mode);  % y = schedule (Termin)
-    definekey("howm_list_todo",            "^Cd",  Howm_Mode);  % d = todo (was t)
+    definekey("howm_list_todo",            "^Ct",  Howm_Mode);  % t = todo
     definekey("howm_list_tags",            "^Ca",  Howm_Mode);  % a = all tags
     definekey("howm_toggle_todo_state",    "^C^T", Howm_Mode);  % Toggle todo state
     definekey("howm_list_recent",          "^Cr",  Howm_Mode);
@@ -1560,12 +1562,12 @@ define howm_mode_hook_function()
         local_setkey("howm_goto_link",             "^Cg");
         local_setkey("howm_search_prompt",         "^Cs");
         local_setkey("howm_isearch",               "^C^S");  % Incremental search
-        local_setkey("howm_search_by_tag",         "^Ct");   % Search by tag
+        local_setkey("howm_search_by_tag",         "^C^A");  % Search by tag (A=all in tag)
         local_setkey("howm_isearch_by_tag",        "^C^F");  % Incremental by tag (F=filter)
-        local_setkey("howm_list_schedule",         "^Cy");  % y = Termin/schedule
-        local_setkey("howm_list_todo",             "^Cd");  % d = todo (was t)
-        local_setkey("howm_list_tags",             "^Ca");  % a = all tags
-        local_setkey("howm_toggle_todo_state",     "^C^T"); % Toggle todo state
+        local_setkey("howm_list_schedule",         "^Cy");   % y = Termin/schedule
+        local_setkey("howm_list_todo",             "^Ct");   % t = todo
+        local_setkey("howm_list_tags",             "^Ca");   % a = all tags
+        local_setkey("howm_toggle_todo_state",     "^C^T");  % Toggle todo state
         local_setkey("howm_list_recent",           "^Cr");
         local_setkey("howm_toggle_todo",           "^C^T");
         local_setkey("howm_insert_date",           "^Cd");
