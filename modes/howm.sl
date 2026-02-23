@@ -19,14 +19,16 @@
 %   [YYYY-MM-DD]-N  Reminder  - sinks slowly after date, N = days per unit
 %   [YYYY-MM-DD]~N  Defer     - sinks/floats periodically, N = period in days
 %   [YYYY-MM-DD].   Done      - sinks forever (completed)
-%   N is optional; defaults: @1  +0  !7  -1  ~30
+%   N is optional; defaults: @1  +7  !7  -7  ~30
 %
 % Toggle cycle (C-c C-t):  + → ! → - → ~ → . → +
 %
 % Keybindings (C-c prefix):
 %   C-c c    Create note       C-c g    Follow link
-%   C-c s    Search            C-c y    List schedule
-%   C-c t    List todo         C-c r    List recent
+%   C-c s    Search            C-c C-s  Incremental search
+%   C-c t    Search by tag     C-c C-f  Incremental search by tag
+%   C-c a    List all tags     C-c y    List schedule
+%   C-c d    List todo         C-c r    List recent
 %   C-c C-t  Toggle todo state
 %   C-c Y    Insert schedule   C-c +    Insert todo
 %   C-c !    Insert deadline   C-c -    Insert reminder
@@ -34,7 +36,7 @@
 %   C-c l    Insert >>>link    C-c L    Insert <<<link
 %   C-c ?    Help
 %
-% Version: 1.3 - Modus Vivendi color semantics
+% Version: 1.6 - Tag filtering + incremental search + fixed priorities + Modus Vivendi
 
 provide("howm");
 
@@ -995,9 +997,9 @@ private define howm_parse_reminder(line)
     if (n_val == 0)
     {
         if      (marker == '@') n_val = 1;
-        else if (marker == '+') n_val = 1;
+        else if (marker == '+') n_val = 7;   % Todo: floats moderately over a week
         else if (marker == '!') n_val = 7;
-        else if (marker == '-') n_val = 1;
+        else if (marker == '-') n_val = 7;   % Reminder: sinks moderately over a week
         else if (marker == '~') n_val = 30;
     }
 
@@ -1432,7 +1434,7 @@ define howm_menu()
     insert("  [YYYY-MM-DD]-N  Reminder  - sinks slowly after date\n");
     insert("  [YYYY-MM-DD]~N  Defer     - sinks/floats periodically (N day period)\n");
     insert("  [YYYY-MM-DD].   Done      - sinks forever\n");
-    insert("  (N is optional, defaults: @1 +0 !7 -1 ~30)\n\n");
+    insert("  (N is optional, defaults: @1 +7 !7 -7 ~30)\n\n");
     
     insert("Toggle cycle (C-c C-t):  + → ! → - → ~ → . → +\n\n");
     
@@ -1449,8 +1451,12 @@ define howm_menu()
     insert("  C-c c     Create note\n");
     insert("  C-c g     Follow link (>>> or <<<)\n");
     insert("  C-c s     Search notes\n");
+    insert("  C-c C-s   Incremental search (type-as-you-search)\n");
+    insert("  C-c t     Search by tag (filter files by Denote tag)\n");
+    insert("  C-c C-f   Incremental search by tag (filter + search)\n");
+    insert("  C-c a     List all tags (with counts)\n");
     insert("  C-c y     List schedule (@)\n");
-    insert("  C-c t     List todo/reminder (+!-~)\n");
+    insert("  C-c d     List todo/reminder (+!-~)\n");
     insert("  C-c r     List recent files\n");
     insert("  C-c C-t   Toggle todo state cycle\n\n");
     insert("  C-c d     Insert [date]\n");
@@ -1483,8 +1489,13 @@ if (keymap_p(Howm_Mode) == 0)
     definekey("howm_create_note",          "^Cc",  Howm_Mode);
     definekey("howm_goto_link",            "^Cg",  Howm_Mode);
     definekey("howm_search_prompt",        "^Cs",  Howm_Mode);
+    definekey("howm_isearch",              "^C^S", Howm_Mode);  % Incremental search
+    definekey("howm_search_by_tag",        "^Ct",  Howm_Mode);  % Search by tag
+    definekey("howm_isearch_by_tag",       "^C^F", Howm_Mode);  % Incremental by tag (F=filter)
     definekey("howm_list_schedule",        "^Cy",  Howm_Mode);  % y = schedule (Termin)
-    definekey("howm_list_todo",            "^Ct",  Howm_Mode);  % t = todo
+    definekey("howm_list_todo",            "^Cd",  Howm_Mode);  % d = todo (was t)
+    definekey("howm_list_tags",            "^Ca",  Howm_Mode);  % a = all tags
+    definekey("howm_toggle_todo_state",    "^C^T", Howm_Mode);  % Toggle todo state
     definekey("howm_list_recent",          "^Cr",  Howm_Mode);
     definekey("howm_toggle_todo",          "^C^T", Howm_Mode);
     definekey("howm_insert_date",          "^Cd",  Howm_Mode);
@@ -1548,8 +1559,13 @@ define howm_mode_hook_function()
         local_setkey("howm_create_note",           "^Cc");
         local_setkey("howm_goto_link",             "^Cg");
         local_setkey("howm_search_prompt",         "^Cs");
+        local_setkey("howm_isearch",               "^C^S");  % Incremental search
+        local_setkey("howm_search_by_tag",         "^Ct");   % Search by tag
+        local_setkey("howm_isearch_by_tag",        "^C^F");  % Incremental by tag (F=filter)
         local_setkey("howm_list_schedule",         "^Cy");  % y = Termin/schedule
-        local_setkey("howm_list_todo",             "^Ct");  % t = todo
+        local_setkey("howm_list_todo",             "^Cd");  % d = todo (was t)
+        local_setkey("howm_list_tags",             "^Ca");  % a = all tags
+        local_setkey("howm_toggle_todo_state",     "^C^T"); % Toggle todo state
         local_setkey("howm_list_recent",           "^Cr");
         local_setkey("howm_toggle_todo",           "^C^T");
         local_setkey("howm_insert_date",           "^Cd");
@@ -1567,9 +1583,679 @@ define howm_mode_hook_function()
 
 append_to_hook("_jed_find_file_after_hooks", &howm_mode_hook_function);
 
+%% =============================================================================
+%% Real Incremental Search - Updates as you type
+%% =============================================================================
+
+variable Howm_Isearch_Buffer = "*howm-isearch*";
+
+% Update search results display
+private define howm_isearch_do_search(pattern)
+{
+    variable files, results, i, file, filepath, fp, line, line_num;
+    variable saved_buf = whatbuf();
+    
+    pop2buf(Howm_Isearch_Buffer);
+    set_readonly(0);
+    erase_buffer();
+    
+    insert(sprintf("Incremental Search: [%s]\n", pattern));
+    insert("================================================================\n");
+    insert("Type to search | RET=jump | ESC=cancel | BS=delete\n\n");
+    
+    if (strlen(pattern) < 2)
+    {
+        if (strlen(pattern) == 0)
+            insert("Start typing...\n");
+        else
+            insert("Need 2+ characters...\n");
+        bob();
+        update(1);  % Force screen update
+        setbuf(saved_buf);
+        return 0;
+    }
+    
+    % Search
+    files = howm_list_files();
+    results = String_Type[0];
+    
+    _for i (0, length(files)-1, 1)
+    {
+        file = files[i];
+        filepath = dircat(Howm_Directory, file);
+        
+        fp = fopen(filepath, "r");
+        if (fp == NULL) continue;
+        
+        line_num = 0;
+        while (-1 != fgets(&line, fp))
+        {
+            line_num++;
+            if (is_substr(strlow(line), strlow(pattern)))
+            {
+                results = [results, sprintf("%s:%d: %s", file, line_num, strtrim(line))];
+                if (length(results) >= 100) break;
+            }
+        }
+        () = fclose(fp);
+        if (length(results) >= 100) break;
+    }
+    
+    % Display
+    if (length(results) == 0)
+    {
+        insert("No matches.\n");
+    }
+    else
+    {
+        insert(sprintf("%d matches", length(results)));
+        if (length(results) >= 100) insert(" (first 100)");
+        insert(":\n\n");
+        
+        variable max = length(results);
+        if (max > 100) max = 100;
+        _for i (0, max-1, 1)
+            insert(results[i] + "\n");
+    }
+    
+    bob();
+    goto_line(4);  % Position on first result
+    update(1);     % Force screen update
+    setbuf(saved_buf);
+    update(1);     % Update original buffer too
+    
+    return length(results);
+}
+
+% Jump to file from current line in isearch buffer
+% Just use the existing howm_list_jump_to_file function
+private define howm_isearch_jump_to_result()
+{
+    % The buffer is already in the right format (filename:linenum: content)
+    % Just call the existing function
+    howm_list_jump_to_file();
+    return 1;  % Assume success
+}
+
+% Main incremental search
+define howm_isearch()
+{
+    variable pattern = "";
+    variable key, ch;
+    variable orig_buf = whatbuf();
+    variable created_split = 0;
+    variable result_count = 0;
+    
+    % Create split
+    if (nwindows() == 1)
+    {
+        splitwindow();
+        created_split = 1;
+    }
+    
+    % Setup results buffer
+    pop2buf(Howm_Isearch_Buffer);
+    set_readonly(0);
+    erase_buffer();
+    insert("Incremental Search: []\n");
+    insert("================================================================\n");
+    insert("Start typing... (RET=jump to first, ESC=cancel, Ctrl-G=finish)\n");
+    bob();
+    update(1);
+    
+    % Make it a list buffer so navigation works
+    howm_list_mode();
+    
+    % Go back to original window
+    otherwindow();
+    setbuf(orig_buf);
+    
+    % Show message
+    message("Incremental search (type to search, RET=jump, Ctrl-G=browse results, ESC=cancel)");
+    update(1);
+    
+    % Input loop
+    forever
+    {
+        % Wait for input without blocking
+        !if (input_pending(10))  % Wait 1 second
+            continue;
+        
+        key = getkey();
+        
+        % ESC - cancel completely
+        if (key == 27)
+        {
+            if (created_split)
+            {
+                setbuf(Howm_Isearch_Buffer);
+                delbuf(Howm_Isearch_Buffer);
+                setbuf(orig_buf);
+                onewindow();
+            }
+            message("Search cancelled");
+            return;
+        }
+        
+        % Ctrl-G (7) - finish search and switch to results for browsing
+        if (key == 7)
+        {
+            if (result_count == 0)
+            {
+                if (created_split)
+                {
+                    setbuf(Howm_Isearch_Buffer);
+                    delbuf(Howm_Isearch_Buffer);
+                    setbuf(orig_buf);
+                    onewindow();
+                }
+                message("No results to browse");
+                return;
+            }
+            
+            % Switch to results buffer and let user navigate normally
+            otherwindow();
+            setbuf(Howm_Isearch_Buffer);
+            message("Browse results (RET=jump, q=close)");
+            return;  % Exit loop, user now has control in results buffer
+        }
+        
+        % RET - jump to current line in results
+        if (key == 13)
+        {
+            if (result_count == 0)
+            {
+                message("No results yet");
+                continue;
+            }
+            
+            % Switch to results buffer and jump
+            otherwindow();
+            setbuf(Howm_Isearch_Buffer);
+            
+            howm_list_jump_to_file();
+            
+            % Clean up
+            if (created_split)
+            {
+                setbuf(Howm_Isearch_Buffer);
+                delbuf(Howm_Isearch_Buffer);
+                onewindow();
+            }
+            return;
+        }
+        
+        % Backspace - delete character
+        if (key == 127 or key == 8)
+        {
+            if (strlen(pattern) > 0)
+            {
+                pattern = substr(pattern, 1, strlen(pattern)-1);
+                result_count = howm_isearch_do_search(pattern);
+            }
+            continue;
+        }
+        
+        % Ctrl-N (14) - next result
+        if (key == 14)
+        {
+            variable saved_buf = whatbuf();
+            otherwindow();
+            setbuf(Howm_Isearch_Buffer);
+            call("next_line_cmd");
+            update(1);
+            otherwindow();
+            setbuf(saved_buf);
+            continue;
+        }
+        
+        % Ctrl-P (16) - previous result
+        if (key == 16)
+        {
+            saved_buf = whatbuf();
+            otherwindow();
+            setbuf(Howm_Isearch_Buffer);
+            call("previous_line_cmd");
+            update(1);
+            otherwindow();
+            setbuf(saved_buf);
+            continue;
+        }
+        
+        % Regular character - add and search
+        if (key >= 32 and key < 127)
+        {
+            pattern = pattern + char(key);
+            result_count = howm_isearch_do_search(pattern);
+        }
+    }
+}
+
+%% =============================================================================
+
 define howm_initialize()
 {
     howm_ensure_directory();
     message("Howm mode loaded. C-c ? for help in .howm files");
 }
+
+
+%% =============================================================================
+%% Denote Tag/Keyword Filtering
+%% =============================================================================
+
+% Extract tags from Denote filename format: TIMESTAMP--title__tag1_tag2.howm
+private define howm_extract_tags_from_filename(filename)
+{
+    variable tag_part, tags;
+    variable underscore_pos = is_substr(filename, "__");
+    
+    if (underscore_pos == 0)
+        return String_Type[0];  % No tags
+    
+    % Extract everything after __
+    tag_part = substr(filename, underscore_pos + 2, strlen(filename));
+    
+    % Remove .howm extension
+    variable dot_pos = is_substr(tag_part, ".");
+    if (dot_pos > 0)
+        tag_part = substr(tag_part, 1, dot_pos - 1);
+    
+    % Split by underscore
+    tags = strchop(tag_part, '_', 0);
+    return tags;
+}
+
+% Check if file has specific tag
+private define howm_file_has_tag(filename, tag)
+{
+    variable tags = howm_extract_tags_from_filename(filename);
+    variable i;
+    
+    _for i (0, length(tags)-1, 1)
+    {
+        if (tags[i] == tag)
+            return 1;
+    }
+    return 0;
+}
+
+% Search filtered by tag
+define howm_search_by_tag()
+{
+    variable tag = read_mini("Filter by tag: ", "", "");
+    
+    if (strlen(tag) == 0)
+    {
+        message("Search cancelled");
+        return;
+    }
+    
+    variable files, i, file, filepath, fp, line, line_num;
+    variable results = String_Type[0];
+    
+    files = howm_list_files();
+    
+    % Filter files by tag first
+    _for i (0, length(files)-1, 1)
+    {
+        file = files[i];
+        
+        if (not howm_file_has_tag(file, tag))
+            continue;
+        
+        filepath = dircat(Howm_Directory, file);
+        fp = fopen(filepath, "r");
+        if (fp == NULL)
+            continue;
+        
+        line_num = 0;
+        while (-1 != fgets(&line, fp))
+        {
+            line_num++;
+            % Add all lines from tagged files
+            results = [results, sprintf("%s:%d: %s", file, line_num, strtrim(line))];
+        }
+        
+        () = fclose(fp);
+    }
+    
+    if (length(results) == 0)
+    {
+        message(sprintf("No files found with tag: %s", tag));
+        return;
+    }
+    
+    % Display results
+    pop2buf(Howm_List_Buffer);
+    set_readonly(0);
+    erase_buffer();
+    
+    insert(sprintf("Files tagged with: %s (%d lines)\n", tag, length(results)));
+    insert("================================================================\n\n");
+    
+    _for i (0, length(results)-1, 1)
+        insert(results[i] + "\n");
+    
+    bob();
+    howm_list_mode();
+    message(sprintf("Found %d files with tag: %s", length(results), tag));
+}
+
+% Helper function for filtered search (must be defined before howm_isearch_by_tag)
+private define howm_isearch_filtered_search(pattern, tag)
+{
+    variable files, results, i, file, filepath, fp, line, line_num;
+    variable saved_buf = whatbuf();
+    
+    pop2buf(Howm_Isearch_Buffer);
+    set_readonly(0);
+    erase_buffer();
+    
+    insert(sprintf("Incremental Search (tag: %s): [%s]\n", tag, pattern));
+    insert("================================================================\n");
+    insert("Ctrl-N/P=navigate | RET=jump | ESC=cancel\n\n");
+    
+    if (strlen(pattern) < 2)
+    {
+        if (strlen(pattern) == 0)
+            insert("Start typing...\n");
+        else
+            insert("Need 2+ characters...\n");
+        bob();
+        update(1);
+        setbuf(saved_buf);
+        return 0;
+    }
+    
+    % Search only in tagged files
+    files = howm_list_files();
+    results = String_Type[0];
+    
+    _for i (0, length(files)-1, 1)
+    {
+        file = files[i];
+        
+        % Skip files without the tag
+        if (not howm_file_has_tag(file, tag))
+            continue;
+        
+        filepath = dircat(Howm_Directory, file);
+        fp = fopen(filepath, "r");
+        if (fp == NULL) continue;
+        
+        line_num = 0;
+        while (-1 != fgets(&line, fp))
+        {
+            line_num++;
+            if (is_substr(strlow(line), strlow(pattern)))
+            {
+                results = [results, sprintf("%s:%d: %s", file, line_num, strtrim(line))];
+                if (length(results) >= 100) break;
+            }
+        }
+        () = fclose(fp);
+        if (length(results) >= 100) break;
+    }
+    
+    % Display
+    if (length(results) == 0)
+    {
+        insert("No matches.\n");
+    }
+    else
+    {
+        insert(sprintf("%d matches", length(results)));
+        if (length(results) >= 100) insert(" (first 100)");
+        insert(":\n\n");
+        
+        variable max = length(results);
+        if (max > 100) max = 100;
+        _for i (0, max-1, 1)
+            insert(results[i] + "\n");
+    }
+    
+    bob();
+    goto_line(4);
+    update(1);
+    setbuf(saved_buf);
+    update(1);
+    
+    return length(results);
+}
+
+% Incremental search filtered by tag
+define howm_isearch_by_tag()
+{
+    variable tag = read_mini("Filter by tag: ", "", "");
+    
+    if (strlen(tag) == 0)
+    {
+        message("Search cancelled");
+        return;
+    }
+    
+    variable pattern = "";
+    variable key, ch;
+    variable orig_buf = whatbuf();
+    variable created_split = 0;
+    variable result_count = 0;
+    
+    % Create split
+    if (nwindows() == 1)
+    {
+        splitwindow();
+        created_split = 1;
+    }
+    
+    % Setup results buffer
+    pop2buf(Howm_Isearch_Buffer);
+    set_readonly(0);
+    erase_buffer();
+    insert(sprintf("Incremental Search (tag: %s): []\n", tag));
+    insert("================================================================\n");
+    insert("Start typing... (RET=jump, Ctrl-G=browse, ESC=cancel)\n");
+    bob();
+    update(1);
+    howm_list_mode();
+    
+    % Go back to original window
+    otherwindow();
+    setbuf(orig_buf);
+    
+    message(sprintf("Incremental search in tag '%s' (type to search)", tag));
+    update(1);
+    
+    % Input loop - same as regular isearch but with tag filter
+    forever
+    {
+        !if (input_pending(10))
+            continue;
+        
+        key = getkey();
+        
+        % ESC - cancel
+        if (key == 27)
+        {
+            if (created_split)
+            {
+                setbuf(Howm_Isearch_Buffer);
+                delbuf(Howm_Isearch_Buffer);
+                setbuf(orig_buf);
+                onewindow();
+            }
+            message("Search cancelled");
+            return;
+        }
+        
+        % Ctrl-G - finish and browse
+        if (key == 7)
+        {
+            if (result_count == 0)
+            {
+                if (created_split)
+                {
+                    setbuf(Howm_Isearch_Buffer);
+                    delbuf(Howm_Isearch_Buffer);
+                    setbuf(orig_buf);
+                    onewindow();
+                }
+                message("No results to browse");
+                return;
+            }
+            otherwindow();
+            setbuf(Howm_Isearch_Buffer);
+            message("Browse results (RET=jump, q=close)");
+            return;
+        }
+        
+        % RET - jump
+        if (key == 13)
+        {
+            if (result_count == 0)
+            {
+                message("No results yet");
+                continue;
+            }
+            
+            otherwindow();
+            setbuf(Howm_Isearch_Buffer);
+            howm_list_jump_to_file();
+            
+            if (created_split)
+            {
+                setbuf(Howm_Isearch_Buffer);
+                delbuf(Howm_Isearch_Buffer);
+                onewindow();
+            }
+            return;
+        }
+        
+        % Backspace
+        if (key == 127 or key == 8)
+        {
+            if (strlen(pattern) > 0)
+            {
+                pattern = substr(pattern, 1, strlen(pattern)-1);
+                result_count = howm_isearch_filtered_search(pattern, tag);
+            }
+            continue;
+        }
+        
+        % Ctrl-N/P navigation
+        if (key == 14)
+        {
+            variable saved_buf = whatbuf();
+            otherwindow();
+            setbuf(Howm_Isearch_Buffer);
+            call("next_line_cmd");
+            update(1);
+            otherwindow();
+            setbuf(saved_buf);
+            continue;
+        }
+        
+        if (key == 16)
+        {
+            saved_buf = whatbuf();
+            otherwindow();
+            setbuf(Howm_Isearch_Buffer);
+            call("previous_line_cmd");
+            update(1);
+            otherwindow();
+            setbuf(saved_buf);
+            continue;
+        }
+        
+        % Regular character - search
+        if (key >= 32 and key < 127)
+        {
+            pattern = pattern + char(key);
+            result_count = howm_isearch_filtered_search(pattern, tag);
+        }
+    }
+}
+
+% List all available tags
+define howm_list_tags()
+{
+    variable files, i, file, tags, j;
+    variable tag_counts = Assoc_Type[Int_Type];  % tag -> count
+    variable tag, count;
+    
+    files = howm_list_files();
+    
+    % Collect all tags
+    _for i (0, length(files)-1, 1)
+    {
+        file = files[i];
+        tags = howm_extract_tags_from_filename(file);
+        
+        _for j (0, length(tags)-1, 1)
+        {
+            tag = tags[j];
+            if (assoc_key_exists(tag_counts, tag))
+                tag_counts[tag]++;
+            else
+                tag_counts[tag] = 1;
+        }
+    }
+    
+    % Get all tags and sort by count
+    variable all_tags = assoc_get_keys(tag_counts);
+    variable counts = Integer_Type[length(all_tags)];
+    
+    _for i (0, length(all_tags)-1, 1)
+        counts[i] = tag_counts[all_tags[i]];
+    
+    % Simple bubble sort by count (descending)
+    variable n = length(all_tags);
+    variable swapped = 1;
+    while (swapped)
+    {
+        swapped = 0;
+        _for i (0, n-2, 1)
+        {
+            if (counts[i] < counts[i+1])
+            {
+                % Swap counts
+                variable temp = counts[i];
+                counts[i] = counts[i+1];
+                counts[i+1] = temp;
+                
+                % Swap tags
+                temp = all_tags[i];
+                all_tags[i] = all_tags[i+1];
+                all_tags[i+1] = temp;
+                
+                swapped = 1;
+            }
+        }
+    }
+    
+    % Display
+    pop2buf(Howm_List_Buffer);
+    set_readonly(0);
+    erase_buffer();
+    
+    insert(sprintf("Tags (%d unique)\n", length(all_tags)));
+    insert("================================================================\n\n");
+    
+    if (length(all_tags) == 0)
+    {
+        insert("No tags found.\n");
+    }
+    else
+    {
+        _for i (0, length(all_tags)-1, 1)
+        {
+            insert(sprintf("  %-20s (%d files)\n", all_tags[i], counts[i]));
+        }
+    }
+    
+    bob();
+    howm_list_mode();  % Enable list mode so 'q' works
+    message(sprintf("Found %d unique tags", length(all_tags)));
+}
+
 
